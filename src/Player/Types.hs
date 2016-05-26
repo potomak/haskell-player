@@ -4,15 +4,17 @@ module Player.Types (
   Status(..)
 ) where
 
+import Brick.Widgets.List (List)
+
 import Player.AudioInfo (SongInfo)
 
 
 data PlayerApp = PlayerApp {
-    songsList :: [Song],
+    songsList :: List Song,
     playerStatus :: Status,
-    currentSong :: FilePath,
+    currentSong :: Maybe Song,
     currentPosition :: Double
-  } deriving (Show)
+  }
 
 
 data Song = Song {

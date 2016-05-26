@@ -22,17 +22,19 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Vector as Vec
 import qualified Graphics.Vty as V
 import Lens.Micro ((^.))
+import Safe (headMay)
 import System.Directory (doesDirectoryExist, getDirectoryContents)
 import System.Environment (getEnv)
 import System.FilePath ((</>))
 
 import Player.AudioInfo (fetchSongInfo)
 import Player.AudioPlay (playSong)
-import Player.Types (Song(Song, songPath))
+import Player.Types (Song(Song, songPath), PlayerApp(PlayerApp, songsList),
+  Status(Play, Pause, Stop))
 import Player.Widgets (songWidget)
 
-drawUI :: L.List Song -> [Widget]
-drawUI l = [ui]
+drawUI :: PlayerApp -> [Widget]
+drawUI (PlayerApp l _ _ _)  = [ui]
   where
     label = str "Item " <+> cur <+> str " of " <+> total
     cur =
@@ -46,34 +48,43 @@ drawUI l = [ui]
               , str "Press q to exit."
               ]
 
-appEvent :: L.List Song -> V.Event -> EventM (Next (L.List Song))
-appEvent l e =
+appEvent :: PlayerApp -> V.Event -> EventM (Next PlayerApp)
+appEvent app@(PlayerApp l status _ _) e =
   case e of
     -- press spacebar to play/pause
     V.EvKey (V.KChar ' ') [] -> do
-      let mPos = l ^. L.listSelectedL
-          songPaths = Vec.map songPath $ L.listElements l
-      case mPos of
-        Nothing -> return ()
-        Just pos -> liftIO $ do
-          musicDir <- defaultMusicDirectory
-          void . playSong . (musicDir </>) $ songPaths Vec.! pos
-        -- TODO: terminateProcess
-      M.continue l
+      case status of
+        Play ->
+          -- TODO: stop playing currentSong - terminateProcess
+          return ()
+        Pause ->
+          -- TODO: resume playing currentSong at currentPosition
+          return ()
+        Stop -> do
+          let mPos = l ^. L.listSelectedL
+              songPaths = Vec.map songPath $ L.listElements l
+          case mPos of
+            Nothing -> return ()
+            Just pos -> liftIO $ do
+              musicDir <- defaultMusicDirectory
+              void . playSong . (musicDir </>) $ songPaths Vec.! pos
+      M.continue app
     -- press q to quit
-    V.EvKey (V.KChar 'q') [] -> M.halt l
+    V.EvKey (V.KChar 'q') [] -> M.halt app
     -- any other event
-    ev -> M.continue =<< handleEvent ev l
+    ev -> do
+      l' <- handleEvent ev l
+      M.continue app { songsList = l' }
 
 
-initialState :: IO (L.List Song)
+initialState :: IO PlayerApp
 initialState = do
-    musicDir <- defaultMusicDirectory
-    songPaths <- listMusicDirectory
-    songInfos <- mapM (fetchSongInfo . (musicDir </>)) songPaths
-    listWidget $ zipWith Song songInfos songPaths
-  where
-    listWidget l = return $ L.list (Name "list") (Vec.fromList l) 1
+  musicDir <- defaultMusicDirectory
+  songPaths <- listMusicDirectory
+  songInfos <- mapM (fetchSongInfo . (musicDir </>)) songPaths
+  let songs = zipWith Song songInfos songPaths
+      listWidget = L.list (Name "list") (Vec.fromList songs) 1
+  return $ PlayerApp listWidget Stop (headMay songs) 0.0
 
 
 theMap :: A.AttrMap
@@ -83,7 +94,7 @@ theMap = A.attrMap V.defAttr
   ]
 
 
-theApp :: M.App (L.List Song) V.Event
+theApp :: M.App PlayerApp V.Event
 theApp =
   M.App { M.appDraw = drawUI
         , M.appChooseCursor = M.showFirstCursor
@@ -117,5 +128,5 @@ defaultMusicDirectory :: IO FilePath
 defaultMusicDirectory = (</> "Music/") <$> getEnv "HOME"
 
 
-appMain :: IO (L.List Song)
+appMain :: IO PlayerApp
 appMain = M.defaultMain theApp =<< initialState
