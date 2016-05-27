@@ -2,10 +2,13 @@ module Player.Types (
   PlayerApp(..),
   Playback(..),
   Song(..),
-  Status(..)
+  Status(..),
+  PlayheadAdvance(..)
 ) where
 
 import Brick.Widgets.List (List)
+import Control.Concurrent (ThreadId, Chan)
+import qualified Graphics.Vty as V
 import System.Process (ProcessHandle)
 
 import Player.AudioInfo (SongInfo)
@@ -14,6 +17,7 @@ import Player.AudioInfo (SongInfo)
 data PlayerApp = PlayerApp {
     songsList :: List Song,
     playerStatus :: Status,
+    playbackChan :: Chan PlayheadAdvance,
     playback :: Maybe Playback
   }
 
@@ -21,7 +25,8 @@ data PlayerApp = PlayerApp {
 data Playback = Playback {
     position :: Int,
     process :: ProcessHandle,
-    playhead :: Double
+    playhead :: Double,
+    playheadThread :: ThreadId
   }
 
 
@@ -34,3 +39,6 @@ data Song = Song {
 
 data Status = Play | Pause | Stop
   deriving (Show)
+
+
+data PlayheadAdvance = VtyEvent V.Event | PlayheadAdvance
