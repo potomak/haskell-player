@@ -15,26 +15,24 @@ import Brick.Widgets.Core ((<+>), str, vBox)
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.List as L
 import Brick.Util (on)
-import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.List (isPrefixOf, stripPrefix)
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as Vec
 import qualified Graphics.Vty as V
 import Lens.Micro ((^.))
-import Safe (headMay)
 import System.Directory (doesDirectoryExist, getDirectoryContents)
 import System.Environment (getEnv)
 import System.FilePath ((</>))
 
-import Player.AudioInfo (fetchSongInfo)
-import Player.AudioPlay (playSong)
-import Player.Types (Song(Song, songPath), PlayerApp(PlayerApp, songsList),
-  Status(Play, Pause, Stop))
+import Player.AudioPlay (play, pause, resume, stop)
+import Player.Types (Song(Song, songPath, songStatus), PlayerApp(PlayerApp,
+  songsList, playerStatus, playback), Playback(Playback), Status(Play, Pause,
+  Stop))
 import Player.Widgets (songWidget)
 
 drawUI :: PlayerApp -> [Widget]
-drawUI (PlayerApp l _ _ _)  = [ui]
+drawUI (PlayerApp l _ _)  = [ui]
   where
     label = str "Item " <+> cur <+> str " of " <+> total
     cur =
@@ -49,28 +47,74 @@ drawUI (PlayerApp l _ _ _)  = [ui]
               ]
 
 appEvent :: PlayerApp -> V.Event -> EventM (Next PlayerApp)
-appEvent app@(PlayerApp l status _ _) e =
+appEvent app@(PlayerApp l status mPlayback) e =
   case e of
     -- press spacebar to play/pause
     V.EvKey (V.KChar ' ') [] -> do
-      case status of
-        Play ->
-          -- TODO: stop playing currentSong - terminateProcess
-          return ()
-        Pause ->
-          -- TODO: resume playing currentSong at currentPosition
-          return ()
-        Stop -> do
-          let mPos = l ^. L.listSelectedL
-              songPaths = Vec.map songPath $ L.listElements l
-          case mPos of
-            Nothing -> return ()
-            Just pos -> liftIO $ do
-              musicDir <- defaultMusicDirectory
-              void . playSong . (musicDir </>) $ songPaths Vec.! pos
-      M.continue app
+      let mPos = l ^. L.listSelectedL
+          songs = L.listElements l
+      case mPos of
+        Nothing -> M.continue app
+        Just pos -> do
+          let selectedSong = songs Vec.! pos
+          case status of
+            Play ->
+              -- pause/stop playing the selected song
+              case mPlayback of
+                Nothing -> M.continue app
+                Just (Playback playPos playProc _) -> do
+                  app' <- if playPos == pos
+                    then do
+                      let songs' = songs Vec.// [(pos, selectedSong { songStatus = Pause })]
+                      liftIO $ pause playProc
+                      return app {
+                          songsList = L.listReplace songs' (Just pos) l,
+                          playerStatus = Pause
+                        }
+                    else do
+                      let song = songs Vec.! playPos
+                          songs' = songs Vec.// [(playPos, song { songStatus = Stop })]
+                      liftIO $ stop playProc
+                      return app {
+                          songsList = L.listReplace songs' (Just pos) l,
+                          playerStatus = Stop,
+                          playback = Nothing
+                        }
+                  M.continue app'
+            Pause ->
+              -- TODO: resume/play the selected song
+              -- if playing song is equal to the selected song
+              --   resume
+              -- else
+              --   play
+              case mPlayback of
+                Nothing -> M.continue app
+                Just (Playback playPos playProc _) -> do
+                  app' <- do
+                    let song = songs Vec.! playPos
+                        songs' = songs Vec.// [(playPos, song { songStatus = Play })]
+                    liftIO $ resume playProc
+                    return app {
+                        songsList = L.listReplace songs' (Just pos) l,
+                        playerStatus = Play
+                      }
+                  M.continue app'
+            Stop -> do
+              let songs' = songs Vec.// [(pos, selectedSong { songStatus = Play })]
+              proc <- liftIO $ do
+                musicDir <- defaultMusicDirectory
+                -- TODO: fetch song info
+                -- songInfo <- mapM (fetchSongInfo . (musicDir </>)) paths
+                play . (musicDir </>) $ songPath selectedSong
+              M.continue app {
+                  songsList = L.listReplace songs' (Just pos) l,
+                  playerStatus = Play,
+                  playback = Just (Playback pos proc 0.0)
+                }
     -- press q to quit
-    V.EvKey (V.KChar 'q') [] -> M.halt app
+    V.EvKey (V.KChar 'q') [] ->
+      -- TODO: stop any current playing process
+      M.halt app
     -- any other event
     ev -> do
       l' <- handleEvent ev l
@@ -79,12 +123,10 @@ appEvent app@(PlayerApp l status _ _) e =
 
 initialState :: IO PlayerApp
 initialState = do
-  musicDir <- defaultMusicDirectory
-  songPaths <- listMusicDirectory
-  songInfos <- mapM (fetchSongInfo . (musicDir </>)) songPaths
-  let songs = zipWith Song songInfos songPaths
+  paths <- listMusicDirectory
+  let songs = map (\p -> Song Nothing p Stop) paths
       listWidget = L.list (Name "list") (Vec.fromList songs) 1
-  return $ PlayerApp listWidget Stop (headMay songs) 0.0
+  return $ PlayerApp listWidget Stop Nothing
 
 
 theMap :: A.AttrMap

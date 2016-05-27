@@ -28,7 +28,6 @@ library
                      , filepath
                      , microlens
                      , process
-                     , safe
                      , text
                      , transformers
                      , vector

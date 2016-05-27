@@ -1,10 +1,12 @@
 module Player.Types (
   PlayerApp(..),
+  Playback(..),
   Song(..),
   Status(..)
 ) where
 
 import Brick.Widgets.List (List)
+import System.Process (ProcessHandle)
 
 import Player.AudioInfo (SongInfo)
 
@@ -12,14 +14,21 @@ import Player.AudioInfo (SongInfo)
 data PlayerApp = PlayerApp {
     songsList :: List Song,
     playerStatus :: Status,
-    currentSong :: Maybe Song,
-    currentPosition :: Double
+    playback :: Maybe Playback
+  }
+
+
+data Playback = Playback {
+    position :: Int,
+    process :: ProcessHandle,
+    playhead :: Double
   }
 
 
 data Song = Song {
-    songInfo :: SongInfo,
-    songPath :: FilePath
+    songInfo :: Maybe SongInfo,
+    songPath :: FilePath,
+    songStatus :: Status
   } deriving (Show)
 
 

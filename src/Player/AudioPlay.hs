@@ -1,5 +1,5 @@
 module Player.AudioPlay (
-  playSong,
+  play,
   pause,
   resume,
   stop
@@ -12,8 +12,8 @@ import System.Process.Internals (ProcessHandle__(OpenHandle, ClosedHandle),
   PHANDLE, withProcessHandle)
 
 
-playSong :: FilePath -> IO ProcessHandle
-playSong path = do
+play :: FilePath -> IO ProcessHandle
+play path = do
   (_, _, _, processHandle) <- createProcess (proc "afplay" [path])
   return processHandle
 
