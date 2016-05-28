@@ -1,6 +1,8 @@
 -- TODO: playlist
--- TODO: play next song
 -- TODO: search
+-- TODO: go to playing song
+-- TODO: next/previous
+-- TODO: stop on exit
 
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -14,26 +16,40 @@ import Brick.Types (Widget, EventM, Next, Name(Name), handleEvent)
 import Brick.Widgets.Core ((<+>), str, vBox)
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.List as L
+import qualified Brick.Widgets.ProgressBar as P
 import Brick.Util (on)
+import Control.Concurrent (Chan, ThreadId, forkIO, killThread, newChan,
+  writeChan, threadDelay)
 import Control.Monad.IO.Class (liftIO)
+import Data.Default (def)
 import Data.List (isPrefixOf, stripPrefix)
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as Vec
+import GHC.Float (double2Float)
 import qualified Graphics.Vty as V
 import Lens.Micro ((^.))
 import System.Directory (doesDirectoryExist, getDirectoryContents)
 import System.Environment (getEnv)
 import System.FilePath ((</>))
+import System.Process (ProcessHandle)
 
+import Player.AudioInfo (SongInfo(SongInfo), fetchSongInfo)
 import Player.AudioPlay (play, pause, resume, stop)
-import Player.Types (Song(Song, songPath, songStatus), PlayerApp(PlayerApp,
-  songsList, playerStatus, playback), Playback(Playback), Status(Play, Pause,
-  Stop))
+import Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp, songsList,
+  playerStatus, playback), Playback(Playback, playhead), Status(Play, Pause,
+  Stop), PlayheadAdvance(VtyEvent, PlayheadAdvance))
 import Player.Widgets (songWidget)
 
 drawUI :: PlayerApp -> [Widget]
-drawUI (PlayerApp l _ _)  = [ui]
+drawUI (PlayerApp l _ _ mPlayback)  = [ui]
   where
+    playheadWidget Nothing = str " "
+    playheadWidget (Just (Playback _ _ ph d _)) = str $
+      "Duration: " ++ show ph ++
+      " - Progress: " ++ show (1 - (double2Float ph / double2Float d))
+    playheadProgressBar Nothing = str " "
+    playheadProgressBar (Just (Playback _ _ ph d _)) =
+      P.progressBar Nothing (1 - (double2Float ph / double2Float d))
     label = str "Item " <+> cur <+> str " of " <+> total
     cur =
       case l ^. L.listSelectedL of
@@ -42,15 +58,16 @@ drawUI (PlayerApp l _ _)  = [ui]
     total = str $ show $ Vec.length $ l ^. L.listElementsL
     box = B.borderWithLabel label $ L.renderList l (const songWidget)
     ui = vBox [ box
-              , str "Press spacebar to play/pause."
-              , str "Press q to exit."
+              , playheadProgressBar mPlayback
+              , playheadWidget mPlayback
+              , str "Press spacebar to play/pause, q to exit."
               ]
 
-appEvent :: PlayerApp -> V.Event -> EventM (Next PlayerApp)
-appEvent app@(PlayerApp l status mPlayback) e =
+appEvent :: PlayerApp -> PlayheadAdvance -> EventM (Next PlayerApp)
+appEvent app@(PlayerApp l status chan mPlayback) e =
   case e of
     -- press spacebar to play/pause
-    V.EvKey (V.KChar ' ') [] -> do
+    VtyEvent (V.EvKey (V.KChar ' ') []) -> do
       let mPos = l ^. L.listSelectedL
           songs = L.listElements l
       case mPos of
@@ -62,7 +79,7 @@ appEvent app@(PlayerApp l status mPlayback) e =
               -- pause/stop playing the selected song
               case mPlayback of
                 Nothing -> M.continue app
-                Just (Playback playPos playProc _) -> do
+                Just pb@(Playback playPos playProc _ _ _) -> do
                   app' <- if playPos == pos
                     then do
                       let songs' = songs Vec.// [(pos, selectedSong { songStatus = Pause })]
@@ -74,7 +91,7 @@ appEvent app@(PlayerApp l status mPlayback) e =
                     else do
                       let song = songs Vec.! playPos
                           songs' = songs Vec.// [(playPos, song { songStatus = Stop })]
-                      liftIO $ stop playProc
+                      liftIO $ stopPlayingSong pb
                       return app {
                           songsList = L.listReplace songs' (Just pos) l,
                           playerStatus = Stop,
@@ -82,14 +99,10 @@ appEvent app@(PlayerApp l status mPlayback) e =
                         }
                   M.continue app'
             Pause ->
-              -- TODO: resume/play the selected song
-              -- if playing song is equal to the selected song
-              --   resume
-              -- else
-              --   play
+              -- resume/play the selected song
               case mPlayback of
                 Nothing -> M.continue app
-                Just (Playback playPos playProc _) -> do
+                Just (Playback playPos playProc _ _ _) -> do
                   app' <- do
                     let song = songs Vec.! playPos
                         songs' = songs Vec.// [(playPos, song { songStatus = Play })]
@@ -101,49 +114,102 @@ appEvent app@(PlayerApp l status mPlayback) e =
                   M.continue app'
             Stop -> do
               let songs' = songs Vec.// [(pos, selectedSong { songStatus = Play })]
-              proc <- liftIO $ do
-                musicDir <- defaultMusicDirectory
-                -- TODO: fetch song info
-                -- songInfo <- mapM (fetchSongInfo . (musicDir </>)) paths
-                play . (musicDir </>) $ songPath selectedSong
+              -- play selected song
+              (proc, duration, tId) <- liftIO $ playSong selectedSong chan
               M.continue app {
                   songsList = L.listReplace songs' (Just pos) l,
                   playerStatus = Play,
-                  playback = Just (Playback pos proc 0.0)
+                  playback = Just (Playback pos proc duration duration tId)
                 }
     -- press q to quit
-    V.EvKey (V.KChar 'q') [] ->
+    VtyEvent (V.EvKey (V.KChar 'q') []) ->
       -- TODO: stop any current playing process
       M.halt app
     -- any other event
-    ev -> do
+    VtyEvent ev -> do
       l' <- handleEvent ev l
       M.continue app { songsList = l' }
+    PlayheadAdvance ->
+      case status of
+        Play ->
+          case mPlayback of
+            Nothing -> M.continue app
+            Just pb@(Playback playPos _ ph _ _) ->
+              if ph > 0
+                then
+                  -- advance playhead
+                  M.continue app {
+                      playback = Just pb { playhead = ph - 1.0 }
+                    }
+                else do
+                  let songs = L.listElements l
+                      song = songs Vec.! playPos
+                      nextPos = (playPos + 1) `mod` Vec.length songs
+                      nextSong = songs Vec.! nextPos
+                      songs' = songs Vec.// [
+                          (playPos, song { songStatus = Stop }),
+                          (nextPos, nextSong { songStatus = Play })
+                        ]
+                  -- stop current song
+                  liftIO $ stopPlayingSong pb
+                  -- play next song
+                  (proc, duration, tId) <- liftIO $ playSong nextSong chan
+                  M.continue app {
+                      songsList = L.listReplace songs' (l ^. L.listSelectedL) l,
+                      playback = Just (Playback nextPos proc duration duration tId)
+                    }
+        _ -> M.continue app
+
+
+playheadAdvanceLoop :: Chan PlayheadAdvance -> IO ThreadId
+playheadAdvanceLoop chan = forkIO loop
+  where
+    loop = do
+      threadDelay 1000000
+      writeChan chan PlayheadAdvance
+      loop
+
+
+stopPlayingSong :: Playback -> IO ()
+stopPlayingSong (Playback _ playProc _ _ threadId) = do
+  stop playProc
+  killThread threadId
+
+
+playSong :: Song -> Chan PlayheadAdvance -> IO (ProcessHandle, Double, ThreadId)
+playSong (Song _ path _) chan = do
+  musicDir <- defaultMusicDirectory
+  (SongInfo duration) <- fetchSongInfo $ musicDir </> path
+  proc <- play $ musicDir </> path
+  tId <- playheadAdvanceLoop chan
+  return (proc, duration, tId)
 
 
 initialState :: IO PlayerApp
 initialState = do
+  chan <- newChan
   paths <- listMusicDirectory
   let songs = map (\p -> Song Nothing p Stop) paths
       listWidget = L.list (Name "list") (Vec.fromList songs) 1
-  return $ PlayerApp listWidget Stop Nothing
+  return $ PlayerApp listWidget Stop chan Nothing
 
 
 theMap :: A.AttrMap
 theMap = A.attrMap V.defAttr
-  [ (L.listAttr,         V.white `on` V.blue)
-  , (L.listSelectedAttr, V.blue `on` V.white)
+  [ (L.listAttr,             V.white `on` V.blue)
+  , (L.listSelectedAttr,     V.blue `on` V.white)
+  , (P.progressCompleteAttr, V.blue `on` V.white)
   ]
 
 
-theApp :: M.App PlayerApp V.Event
+theApp :: M.App PlayerApp PlayheadAdvance
 theApp =
   M.App { M.appDraw = drawUI
         , M.appChooseCursor = M.showFirstCursor
         , M.appHandleEvent = appEvent
         , M.appStartEvent = return
         , M.appAttrMap = const theMap
-        , M.appLiftVtyEvent = id
+        , M.appLiftVtyEvent = VtyEvent
         }
 
 
@@ -171,4 +237,6 @@ defaultMusicDirectory = (</> "Music/") <$> getEnv "HOME"
 
 
 appMain :: IO PlayerApp
-appMain = M.defaultMain theApp =<< initialState
+appMain = do
+  playerApp@(PlayerApp _ _ chan _) <- initialState
+  M.customMain (V.mkVty def) chan theApp playerApp
