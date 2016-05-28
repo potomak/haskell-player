@@ -26,6 +26,7 @@ data Playback = Playback {
     position :: Int,
     process :: ProcessHandle,
     playhead :: Double,
+    duration :: Double,
     playheadThread :: ThreadId
   }
 
