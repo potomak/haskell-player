@@ -1,5 +1,5 @@
 name:                haskell-player
-version:             0.1.2.0
+version:             0.1.2.1
 synopsis:            A terminal music player based on afplay
 description:         Please see README.md
 homepage:            https://github.com/potomak/haskell-player
@@ -15,25 +15,25 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Player
-                     , Player.AudioInfo
-                     , Player.AudioPlay
-                     , Player.Types
-                     , Player.Widgets
+  exposed-modules:     Sound.Player
+                     , Sound.Player.AudioInfo
+                     , Sound.Player.AudioPlay
+                     , Sound.Player.Types
+                     , Sound.Player.Widgets
   ghc-options:         -Wall
   build-depends:       base >= 4.7 && < 5
-                     , brick >= 0.6.4
-                     , bytestring
-                     , data-default
-                     , directory
-                     , filepath
-                     , microlens
-                     , process
-                     , text
-                     , transformers
-                     , vector
-                     , vty
-                     , xml-conduit
+                     , brick >= 0.6.4 && < 0.7
+                     , bytestring >= 0.10.6 && < 0.11
+                     , data-default >= 0.5.3 && < 0.6
+                     , directory >= 1.2.2 && < 1.3
+                     , filepath >= 1.4 && < 1.5
+                     , microlens >= 0.4.2.1 && < 0.5
+                     , process >= 1.2.3 && < 1.3
+                     , text >= 1.2.2.1 && < 1.3
+                     , transformers >= 0.4.2 && < 0.5
+                     , vector >= 0.11 && < 0.12
+                     , vty >= 5.5 && < 5.6
+                     , xml-conduit >= 1.3.5 && < 1.4
   default-language:    Haskell2010
 
 executable haskell-player

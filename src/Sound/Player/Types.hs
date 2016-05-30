@@ -1,4 +1,4 @@
-module Player.Types (
+module Sound.Player.Types (
   PlayerApp(..),
   Playback(..),
   Song(..),
@@ -11,7 +11,7 @@ import Control.Concurrent (ThreadId, Chan)
 import qualified Graphics.Vty as V
 import System.Process (ProcessHandle)
 
-import Player.AudioInfo (SongInfo)
+import Sound.Player.AudioInfo (SongInfo)
 
 
 data PlayerApp = PlayerApp {
