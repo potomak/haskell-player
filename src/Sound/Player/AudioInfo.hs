@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Player.AudioInfo (
+module Sound.Player.AudioInfo (
   SongInfo(..),
   fetchSongInfo
 ) where

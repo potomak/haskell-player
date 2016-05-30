@@ -15,11 +15,11 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Player
-                     , Player.AudioInfo
-                     , Player.AudioPlay
-                     , Player.Types
-                     , Player.Widgets
+  exposed-modules:     Sound.Player
+                     , Sound.Player.AudioInfo
+                     , Sound.Player.AudioPlay
+                     , Sound.Player.Types
+                     , Sound.Player.Widgets
   ghc-options:         -Wall
   build-depends:       base >= 4.7 && < 5
                      , brick >= 0.6.4

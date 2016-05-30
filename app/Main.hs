@@ -2,7 +2,7 @@ module Main where
 
 import Control.Monad (void)
 
-import Player (appMain)
+import Sound.Player (appMain)
 
 
 main :: IO ()

@@ -5,7 +5,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Player (
+module Sound.Player (
   appMain
 ) where
 
@@ -32,12 +32,12 @@ import System.Environment (getEnv)
 import System.FilePath ((</>))
 import System.Process (ProcessHandle)
 
-import Player.AudioInfo (SongInfo(SongInfo), fetchSongInfo)
-import Player.AudioPlay (play, pause, resume, stop)
-import Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp, songsList,
+import Sound.Player.AudioInfo (SongInfo(SongInfo), fetchSongInfo)
+import Sound.Player.AudioPlay (play, pause, resume, stop)
+import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp, songsList,
   playerStatus, playback), Playback(Playback, playhead), Status(Play, Pause,
   Stop), PlayheadAdvance(VtyEvent, PlayheadAdvance))
-import Player.Widgets (songWidget)
+import Sound.Player.Widgets (songWidget)
 
 drawUI :: PlayerApp -> [Widget]
 drawUI (PlayerApp l _ _ mPlayback)  = [ui]

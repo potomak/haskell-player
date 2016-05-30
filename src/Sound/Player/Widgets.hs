@@ -1,11 +1,11 @@
-module Player.Widgets (
+module Sound.Player.Widgets (
   songWidget
 ) where
 
 import Brick.Types (Widget)
 import Brick.Widgets.Core ((<+>), str, fill, vLimit)
 
-import Player.Types (Song(Song), Status(Play, Pause))
+import Sound.Player.Types (Song(Song), Status(Play, Pause))
 
 
 songWidget :: Song -> Widget

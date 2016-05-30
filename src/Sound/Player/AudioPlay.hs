@@ -1,4 +1,4 @@
-module Player.AudioPlay (
+module Sound.Player.AudioPlay (
   play,
   pause,
   resume,
