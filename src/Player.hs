@@ -2,7 +2,6 @@
 -- TODO: search
 -- TODO: go to playing song
 -- TODO: next/previous
--- TODO: stop on exit
 
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -122,9 +121,11 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
                   playback = Just (Playback pos proc duration duration tId)
                 }
     -- press q to quit
-    VtyEvent (V.EvKey (V.KChar 'q') []) ->
-      -- TODO: stop any current playing process
+    VtyEvent (V.EvKey (V.KChar 'q') []) -> do
+      -- stop current process if present
+      maybe (return ()) (liftIO . stopPlayingSong) mPlayback
       M.halt app
+
     -- any other event
     VtyEvent ev -> do
       l' <- handleEvent ev l
