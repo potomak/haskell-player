@@ -22,18 +22,18 @@ library
                      , Sound.Player.Widgets
   ghc-options:         -Wall
   build-depends:       base >= 4.7 && < 5
-                     , brick >= 0.6.4
-                     , bytestring
-                     , data-default
-                     , directory
-                     , filepath
-                     , microlens
-                     , process
-                     , text
-                     , transformers
-                     , vector
-                     , vty
-                     , xml-conduit
+                     , brick >= 0.6.4 && < 0.7
+                     , bytestring >= 0.10.6 && < 0.11
+                     , data-default >= 0.5.3 && < 0.6
+                     , directory >= 1.2.2 && < 1.3
+                     , filepath >= 1.4 && < 1.5
+                     , microlens >= 0.4.2.1 && < 0.5
+                     , process >= 1.2.3 && < 1.3
+                     , text >= 1.2.2.1 && < 1.3
+                     , transformers >= 0.4.2 && < 0.5
+                     , vector >= 0.11 && < 0.12
+                     , vty >= 5.5 && < 5.6
+                     , xml-conduit >= 1.3.5 && < 1.4
   default-language:    Haskell2010
 
 executable haskell-player
