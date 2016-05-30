@@ -1,5 +1,5 @@
 name:                haskell-player
-version:             0.1.2.0
+version:             0.1.2.1
 synopsis:            A terminal music player based on afplay
 description:         Please see README.md
 homepage:            https://github.com/potomak/haskell-player
