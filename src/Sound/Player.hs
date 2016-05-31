@@ -66,7 +66,7 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
     ui = vBox [ box
               , playheadProgressBar mPlayback
               , playheadWidget mPlayback
-              , str "Press spacebar to play/pause, q to exit."
+              , str "Press enter to play/stop, spacebar to pause/resume, q to exit."
               ]
 
 
@@ -74,56 +74,72 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
 appEvent :: PlayerApp -> PlayerEvent -> EventM (Next PlayerApp)
 appEvent app@(PlayerApp l status chan mPlayback) e =
   case e of
+    -- play selected song, stop current song if playing
+    VtyEvent (V.EvKey V.KEnter []) -> do
+      let mPos = l ^. L.listSelectedL
+          songs = L.listElements l
+      app'@(PlayerApp l' _ _ _) <- case status of
+        Stop -> return app
+        _ -> case mPlayback of
+          Nothing -> return app
+          Just pb@(Playback playPos _ _ _ _) -> do
+            let song = songs Vec.! playPos
+                songs' = songs Vec.// [(playPos, song { songStatus = Stop })]
+            liftIO $ stopPlayingSong pb
+            return app {
+                songsList = L.listReplace songs' mPos l,
+                playerStatus = Stop,
+                playback = Nothing
+              }
+      case mPos of
+        Nothing -> M.continue app'
+        Just pos -> do
+          let song = songs Vec.! pos
+              songs' = L.listElements l'
+              songs'' = songs' Vec.// [(pos, song { songStatus = Play })]
+          (proc, duration, tId) <- liftIO $ playSong song chan
+          M.continue app' {
+              songsList = L.listReplace songs'' (Just pos) l',
+              playerStatus = Play,
+              playback = Just (Playback pos proc duration duration tId)
+            }
     -- press spacebar to play/pause
     VtyEvent (V.EvKey (V.KChar ' ') []) -> do
       let mPos = l ^. L.listSelectedL
           songs = L.listElements l
-      case mPos of
-        Nothing -> M.continue app
-        Just pos -> do
-          let selectedSong = songs Vec.! pos
-          case status of
-            Play ->
-              -- pause/stop playing the selected song
-              case mPlayback of
-                Nothing -> M.continue app
-                Just pb@(Playback playPos playProc _ _ _) -> do
-                  app' <- if playPos == pos
-                    then do
-                      let songs' = songs Vec.// [(pos, selectedSong { songStatus = Pause })]
-                      liftIO $ pause playProc
-                      return app {
-                          songsList = L.listReplace songs' (Just pos) l,
-                          playerStatus = Pause
-                        }
-                    else do
-                      let song = songs Vec.! playPos
-                          songs' = songs Vec.// [(playPos, song { songStatus = Stop })]
-                      liftIO $ stopPlayingSong pb
-                      return app {
-                          songsList = L.listReplace songs' (Just pos) l,
-                          playerStatus = Stop,
-                          playback = Nothing
-                        }
-                  M.continue app'
-            Pause ->
-              -- resume/play the selected song
-              case mPlayback of
-                Nothing -> M.continue app
-                Just (Playback playPos playProc _ _ _) -> do
-                  app' <- do
-                    let song = songs Vec.! playPos
-                        songs' = songs Vec.// [(playPos, song { songStatus = Play })]
-                    liftIO $ resume playProc
-                    return app {
-                        songsList = L.listReplace songs' (Just pos) l,
-                        playerStatus = Play
-                      }
-                  M.continue app'
-            Stop -> do
-              let songs' = songs Vec.// [(pos, selectedSong { songStatus = Play })]
-              -- play selected song
-              (proc, duration, tId) <- liftIO $ playSong selectedSong chan
+      case status of
+        Play ->
+          -- pause playing song
+          case mPlayback of
+            Nothing -> M.continue app
+            Just (Playback playPos playProc _ _ _) -> do
+              let song = songs Vec.! playPos
+                  songs' = songs Vec.// [(playPos, song { songStatus = Pause })]
+              liftIO $ pause playProc
+              M.continue app {
+                  songsList = L.listReplace songs' mPos l,
+                  playerStatus = Pause
+                }
+        Pause ->
+          -- resume playing song
+          case mPlayback of
+            Nothing -> M.continue app
+            Just (Playback playPos playProc _ _ _) -> do
+              let song = songs Vec.! playPos
+                  songs' = songs Vec.// [(playPos, song { songStatus = Play })]
+              liftIO $ resume playProc
+              M.continue app {
+                  songsList = L.listReplace songs' mPos l,
+                  playerStatus = Play
+                }
+        Stop ->
+          -- play selected song
+          case mPos of
+            Nothing -> M.continue app
+            Just pos -> do
+              let song = songs Vec.! pos
+                  songs' = songs Vec.// [(pos, song { songStatus = Play })]
+              (proc, duration, tId) <- liftIO $ playSong song chan
               M.continue app {
                   songsList = L.listReplace songs' (Just pos) l,
                   playerStatus = Play,
