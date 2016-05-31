@@ -3,7 +3,7 @@ module Sound.Player.Types (
   Playback(..),
   Song(..),
   Status(..),
-  PlayheadAdvance(..)
+  PlayerEvent(..)
 ) where
 
 import Brick.Widgets.List (List)
@@ -17,7 +17,7 @@ import Sound.Player.AudioInfo (SongInfo)
 data PlayerApp = PlayerApp {
     songsList :: List Song,
     playerStatus :: Status,
-    playbackChan :: Chan PlayheadAdvance,
+    playbackChan :: Chan PlayerEvent,
     playback :: Maybe Playback
   }
 
@@ -42,4 +42,4 @@ data Status = Play | Pause | Stop
   deriving (Show)
 
 
-data PlayheadAdvance = VtyEvent V.Event | PlayheadAdvance
+data PlayerEvent = VtyEvent V.Event | PlayheadAdvance

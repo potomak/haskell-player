@@ -1,7 +1,7 @@
 -- TODO: playlist
 -- TODO: search
 -- TODO: go to playing song
--- TODO: next/previous
+-- TODO: help dialog
 
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -19,7 +19,7 @@ import qualified Brick.Widgets.ProgressBar as P
 import Brick.Util (on)
 import Control.Concurrent (Chan, ThreadId, forkIO, killThread, newChan,
   writeChan, threadDelay)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Default (def)
 import Data.List (isPrefixOf, stripPrefix)
 import Data.Maybe (fromMaybe)
@@ -33,22 +33,45 @@ import System.FilePath ((</>))
 import System.Process (ProcessHandle)
 
 import Sound.Player.AudioInfo (SongInfo(SongInfo), fetchSongInfo)
-import Sound.Player.AudioPlay (play, pause, resume, stop)
-import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp, songsList,
-  playerStatus, playback), Playback(Playback, playhead), Status(Play, Pause,
-  Stop), PlayheadAdvance(VtyEvent, PlayheadAdvance))
+import qualified Sound.Player.AudioPlay as AP (play, pause, resume, stop)
+import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp,
+  songsList, playerStatus, playback), Playback(Playback, playhead),
+  Status(Play, Pause, Stop), PlayerEvent(VtyEvent, PlayheadAdvance))
 import Sound.Player.Widgets (songWidget)
 
+
+-- | Draws application UI.
 drawUI :: PlayerApp -> [Widget]
 drawUI (PlayerApp l _ _ mPlayback)  = [ui]
   where
     playheadWidget Nothing = str " "
-    playheadWidget (Just (Playback _ _ ph d _)) = str $
-      "Duration: " ++ show ph ++
-      " - Progress: " ++ show (1 - (double2Float ph / double2Float d))
+    playheadWidget (Just pb@(Playback _ _ ph d _)) = str $
+      "Duration: " ++ show d ++
+      " - Position: " ++ show (d - ph) ++
+      " - Progress: " ++ show (playheadProgress pb)
     playheadProgressBar Nothing = str " "
-    playheadProgressBar (Just (Playback _ _ ph d _)) =
-      P.progressBar Nothing (1 - (double2Float ph / double2Float d))
+    playheadProgressBar (Just pb@(Playback playPos _ ph _ _)) =
+      P.progressBar (Just title) (playheadProgress pb)
+      where
+        title = path ++ " (" ++ humanDuration ph ++ ")"
+        songs = l ^. L.listElementsL
+        (Song _ path _) = songs Vec.! playPos
+        secondsDuration :: Double -> Int
+        secondsDuration d = round d `mod` 60
+        minutesDuration :: Double -> Int
+        minutesDuration d = round d `div` 60
+        humanDuration :: Double -> String
+        humanDuration d =
+          show (minutesDuration d) ++ ":" ++ padSeconds (secondsDuration d)
+        padSeconds :: Int -> String
+        padSeconds s
+            | length secs < 2 = "0" ++ secs
+            | otherwise = secs
+          where
+            secs = show s
+    -- A number between 0 and 1 that is current song's progress
+    playheadProgress (Playback _ _ ph d _) =
+      1 - (double2Float ph / double2Float d)
     label = str "Item " <+> cur <+> str " of " <+> total
     cur =
       case l ^. L.listSelectedL of
@@ -59,110 +82,90 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
     ui = vBox [ box
               , playheadProgressBar mPlayback
               , playheadWidget mPlayback
-              , str "Press spacebar to play/pause, q to exit."
+              , str $ "Press enter to play/stop, spacebar to pause/resume, " ++
+                      "left/right to play prev/next song, " ++
+                      "q to exit."
               ]
 
-appEvent :: PlayerApp -> PlayheadAdvance -> EventM (Next PlayerApp)
-appEvent app@(PlayerApp l status chan mPlayback) e =
+
+-- Updates the selected song status and the song list in the app state.
+updateAppStatus :: PlayerApp -> Status -> Int -> PlayerApp
+updateAppStatus app@(PlayerApp l _ _ _) status pos =
+    app {
+        songsList = L.listReplace songs' mPos l,
+        playerStatus = status
+      }
+  where
+    songs = L.listElements l
+    mPos = l ^. L.listSelectedL
+    song = songs Vec.! pos
+    songs' = songs Vec.// [(pos, song { songStatus = status })]
+
+
+-- | App events handler.
+appEvent :: PlayerApp -> PlayerEvent -> EventM (Next PlayerApp)
+appEvent app@(PlayerApp l status _ mPlayback) e =
   case e of
+    -- press enter to play selected song, stop current song if playing
+    VtyEvent (V.EvKey V.KEnter []) ->
+      M.continue =<< stopAndPlaySelected app
+
     -- press spacebar to play/pause
-    VtyEvent (V.EvKey (V.KChar ' ') []) -> do
-      let mPos = l ^. L.listSelectedL
-          songs = L.listElements l
-      case mPos of
-        Nothing -> M.continue app
-        Just pos -> do
-          let selectedSong = songs Vec.! pos
-          case status of
-            Play ->
-              -- pause/stop playing the selected song
-              case mPlayback of
-                Nothing -> M.continue app
-                Just pb@(Playback playPos playProc _ _ _) -> do
-                  app' <- if playPos == pos
-                    then do
-                      let songs' = songs Vec.// [(pos, selectedSong { songStatus = Pause })]
-                      liftIO $ pause playProc
-                      return app {
-                          songsList = L.listReplace songs' (Just pos) l,
-                          playerStatus = Pause
-                        }
-                    else do
-                      let song = songs Vec.! playPos
-                          songs' = songs Vec.// [(playPos, song { songStatus = Stop })]
-                      liftIO $ stopPlayingSong pb
-                      return app {
-                          songsList = L.listReplace songs' (Just pos) l,
-                          playerStatus = Stop,
-                          playback = Nothing
-                        }
-                  M.continue app'
-            Pause ->
-              -- resume/play the selected song
-              case mPlayback of
-                Nothing -> M.continue app
-                Just (Playback playPos playProc _ _ _) -> do
-                  app' <- do
-                    let song = songs Vec.! playPos
-                        songs' = songs Vec.// [(playPos, song { songStatus = Play })]
-                    liftIO $ resume playProc
-                    return app {
-                        songsList = L.listReplace songs' (Just pos) l,
-                        playerStatus = Play
-                      }
-                  M.continue app'
-            Stop -> do
-              let songs' = songs Vec.// [(pos, selectedSong { songStatus = Play })]
-              -- play selected song
-              (proc, duration, tId) <- liftIO $ playSong selectedSong chan
-              M.continue app {
-                  songsList = L.listReplace songs' (Just pos) l,
-                  playerStatus = Play,
-                  playback = Just (Playback pos proc duration duration tId)
-                }
+    VtyEvent (V.EvKey (V.KChar ' ') []) ->
+      case status of
+        Play ->
+          -- pause playing song
+          case mPlayback of
+            Nothing -> M.continue app
+            Just (Playback playPos playProc _ _ _) -> do
+              liftIO $ AP.pause playProc
+              M.continue $ updateAppStatus app Pause playPos
+        Pause ->
+          -- resume playing song
+          case mPlayback of
+            Nothing -> M.continue app
+            Just (Playback playPos playProc _ _ _) -> do
+              liftIO $ AP.resume playProc
+              M.continue $ updateAppStatus app Play playPos
+        Stop ->
+          -- play selected song
+          M.continue =<< play (l ^. L.listSelectedL) app
+
+    -- press left to play previous song
+    VtyEvent (V.EvKey V.KLeft []) ->
+      M.continue =<< stopAndPlayDelta (-1) app
+
+    -- press right to play next song
+    VtyEvent (V.EvKey V.KRight []) ->
+      M.continue =<< stopAndPlayDelta 1 app
+
     -- press q to quit
-    VtyEvent (V.EvKey (V.KChar 'q') []) -> do
-      -- stop current process if present
-      maybe (return ()) (liftIO . stopPlayingSong) mPlayback
-      M.halt app
+    VtyEvent (V.EvKey (V.KChar 'q') []) ->
+      M.halt =<< stop app
 
     -- any other event
     VtyEvent ev -> do
       l' <- handleEvent ev l
       M.continue app { songsList = l' }
+
+    -- playhead advance event
     PlayheadAdvance ->
-      case status of
+      M.continue =<< case status of
         Play ->
           case mPlayback of
-            Nothing -> M.continue app
-            Just pb@(Playback playPos _ ph _ _) ->
-              if ph > 0
-                then
-                  -- advance playhead
-                  M.continue app {
-                      playback = Just pb { playhead = ph - 1.0 }
-                    }
-                else do
-                  let songs = L.listElements l
-                      song = songs Vec.! playPos
-                      nextPos = (playPos + 1) `mod` Vec.length songs
-                      nextSong = songs Vec.! nextPos
-                      songs' = songs Vec.// [
-                          (playPos, song { songStatus = Stop }),
-                          (nextPos, nextSong { songStatus = Play })
-                        ]
-                  -- stop current song
-                  liftIO $ stopPlayingSong pb
-                  -- play next song
-                  (proc, duration, tId) <- liftIO $ playSong nextSong chan
-                  M.continue app {
-                      songsList = L.listReplace songs' (l ^. L.listSelectedL) l,
-                      playback = Just (Playback nextPos proc duration duration tId)
-                    }
-        _ -> M.continue app
+            Nothing -> return app
+            Just pb@(Playback _ _ ph _ _) ->
+              if ph > 0 then
+                -- advance playhead
+                return app { playback = Just pb { playhead = ph - 1.0 } }
+              else
+                stopAndPlayDelta 1 app
+        _ -> return app
 
 
-playheadAdvanceLoop :: Chan PlayheadAdvance -> IO ThreadId
+-- | Forks a thread that will trigger a 'Types.PlayheadAdvance' event every
+-- second.
+playheadAdvanceLoop :: Chan PlayerEvent -> IO ThreadId
 playheadAdvanceLoop chan = forkIO loop
   where
     loop = do
@@ -171,21 +174,56 @@ playheadAdvanceLoop chan = forkIO loop
       loop
 
 
-stopPlayingSong :: Playback -> IO ()
-stopPlayingSong (Playback _ playProc _ _ threadId) = do
-  stop playProc
-  killThread threadId
+-- | Stops the song that is currently playing and kills the playback thread.
+stop :: (MonadIO m) => PlayerApp -> m PlayerApp
+stop app@(PlayerApp _ _ _ Nothing) = return app
+stop app@(PlayerApp _ _ _ (Just pb@(Playback playPos _ _ _ _))) = do
+  liftIO $ stopPlayingSong pb
+  return (updateAppStatus app Stop playPos) { playback = Nothing }
+  where
+    stopPlayingSong (Playback _ playProc _ _ threadId) = do
+      AP.stop playProc
+      killThread threadId
 
 
-playSong :: Song -> Chan PlayheadAdvance -> IO (ProcessHandle, Double, ThreadId)
-playSong (Song _ path _) chan = do
-  musicDir <- defaultMusicDirectory
-  (SongInfo duration) <- fetchSongInfo $ musicDir </> path
-  proc <- play $ musicDir </> path
-  tId <- playheadAdvanceLoop chan
-  return (proc, duration, tId)
+-- | Fetches song info, plays it, and starts a thread to advance the playhead.
+play :: (MonadIO m) => Maybe Int -> PlayerApp -> m PlayerApp
+play Nothing app = return app
+play (Just _) app@(PlayerApp _ _ _ (Just _)) = return app
+play (Just pos) app@(PlayerApp l _ chan _) = do
+    (proc, duration, tId) <- liftIO $ playSong song
+    return (updateAppStatus app Play pos) {
+        playback = Just (Playback pos proc duration duration tId)
+      }
+  where
+    songs = L.listElements l
+    song = songs Vec.! pos
+    playSong :: Song -> IO (ProcessHandle, Double, ThreadId)
+    playSong (Song _ path _) = do
+      musicDir <- defaultMusicDirectory
+      (SongInfo duration) <- fetchSongInfo $ musicDir </> path
+      proc <- AP.play $ musicDir </> path
+      tId <- playheadAdvanceLoop chan
+      return (proc, duration, tId)
 
 
+-- Stops current song and play selected song.
+stopAndPlaySelected :: (MonadIO m) => PlayerApp -> m PlayerApp
+stopAndPlaySelected app = play mPos =<< stop app
+  where
+    mPos = songsList app ^. L.listSelectedL
+
+
+-- Stops current song and play current song pos + delta.
+stopAndPlayDelta :: (MonadIO m) => Int -> PlayerApp -> m PlayerApp
+stopAndPlayDelta _ app@(PlayerApp _ _ _ Nothing) = return app
+stopAndPlayDelta delta app@(PlayerApp l _ _ (Just (Playback playPos _ _ _ _))) =
+    play (Just pos) =<< stop app
+  where
+    pos = (playPos + delta) `mod` Vec.length (L.listElements l)
+
+
+-- | Returns the initial state of the application.
 initialState :: IO PlayerApp
 initialState = do
   chan <- newChan
@@ -203,7 +241,7 @@ theMap = A.attrMap V.defAttr
   ]
 
 
-theApp :: M.App PlayerApp PlayheadAdvance
+theApp :: M.App PlayerApp PlayerEvent
 theApp =
   M.App { M.appDraw = drawUI
         , M.appChooseCursor = M.showFirstCursor
@@ -214,6 +252,8 @@ theApp =
         }
 
 
+-- TODO: return only audio files
+-- | Returns the list of files in the default music directory.
 listMusicDirectory :: IO [FilePath]
 listMusicDirectory = do
     musicDir <- defaultMusicDirectory
@@ -233,6 +273,7 @@ listMusicDirectory = do
     stripMusicDirectory musicDir = fromMaybe musicDir . stripPrefix musicDir
 
 
+-- | The default music directory is /$HOME\/Music/.
 defaultMusicDirectory :: IO FilePath
 defaultMusicDirectory = (</> "Music/") <$> getEnv "HOME"
 
