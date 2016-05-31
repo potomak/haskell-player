@@ -70,6 +70,20 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
               ]
 
 
+-- Updates the selected song status and the song list in the app state.
+updateAppStatus :: PlayerApp -> Status -> Int -> PlayerApp
+updateAppStatus app@(PlayerApp l _ _ _) status pos =
+    app {
+        songsList = L.listReplace songs' mPos l,
+        playerStatus = status
+      }
+  where
+    songs = L.listElements l
+    mPos = l ^. L.listSelectedL
+    song = songs Vec.! pos
+    songs' = songs Vec.// [(pos, song { songStatus = status })]
+
+
 -- | App events handler.
 appEvent :: PlayerApp -> PlayerEvent -> EventM (Next PlayerApp)
 appEvent app@(PlayerApp l status chan mPlayback) e =
@@ -78,29 +92,19 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
     VtyEvent (V.EvKey V.KEnter []) -> do
       let mPos = l ^. L.listSelectedL
           songs = L.listElements l
-      app'@(PlayerApp l' _ _ _) <- case status of
+      app' <- case status of
         Stop -> return app
         _ -> case mPlayback of
           Nothing -> return app
           Just pb@(Playback playPos _ _ _ _) -> do
-            let song = songs Vec.! playPos
-                songs' = songs Vec.// [(playPos, song { songStatus = Stop })]
             liftIO $ stopPlayingSong pb
-            return app {
-                songsList = L.listReplace songs' mPos l,
-                playerStatus = Stop,
-                playback = Nothing
-              }
+            return (updateAppStatus app Stop playPos) { playback = Nothing }
       case mPos of
         Nothing -> M.continue app'
         Just pos -> do
           let song = songs Vec.! pos
-              songs' = L.listElements l'
-              songs'' = songs' Vec.// [(pos, song { songStatus = Play })]
           (proc, duration, tId) <- liftIO $ playSong song chan
-          M.continue app' {
-              songsList = L.listReplace songs'' (Just pos) l',
-              playerStatus = Play,
+          M.continue (updateAppStatus app' Play pos) {
               playback = Just (Playback pos proc duration duration tId)
             }
     -- press spacebar to play/pause
@@ -113,36 +117,23 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
           case mPlayback of
             Nothing -> M.continue app
             Just (Playback playPos playProc _ _ _) -> do
-              let song = songs Vec.! playPos
-                  songs' = songs Vec.// [(playPos, song { songStatus = Pause })]
               liftIO $ pause playProc
-              M.continue app {
-                  songsList = L.listReplace songs' mPos l,
-                  playerStatus = Pause
-                }
+              M.continue $ updateAppStatus app Pause playPos
         Pause ->
           -- resume playing song
           case mPlayback of
             Nothing -> M.continue app
             Just (Playback playPos playProc _ _ _) -> do
-              let song = songs Vec.! playPos
-                  songs' = songs Vec.// [(playPos, song { songStatus = Play })]
               liftIO $ resume playProc
-              M.continue app {
-                  songsList = L.listReplace songs' mPos l,
-                  playerStatus = Play
-                }
+              M.continue $ updateAppStatus app Play playPos
         Stop ->
           -- play selected song
           case mPos of
             Nothing -> M.continue app
             Just pos -> do
               let song = songs Vec.! pos
-                  songs' = songs Vec.// [(pos, song { songStatus = Play })]
               (proc, duration, tId) <- liftIO $ playSong song chan
-              M.continue app {
-                  songsList = L.listReplace songs' (Just pos) l,
-                  playerStatus = Play,
+              M.continue (updateAppStatus app Play pos) {
                   playback = Just (Playback pos proc duration duration tId)
                 }
     -- press q to quit
@@ -155,6 +146,8 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
     VtyEvent ev -> do
       l' <- handleEvent ev l
       M.continue app { songsList = l' }
+
+    -- playhead advance event
     PlayheadAdvance ->
       case status of
         Play ->
@@ -169,19 +162,13 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
                     }
                 else do
                   let songs = L.listElements l
-                      song = songs Vec.! playPos
                       nextPos = (playPos + 1) `mod` Vec.length songs
                       nextSong = songs Vec.! nextPos
-                      songs' = songs Vec.// [
-                          (playPos, song { songStatus = Stop }),
-                          (nextPos, nextSong { songStatus = Play })
-                        ]
                   -- stop current song
                   liftIO $ stopPlayingSong pb
                   -- play next song
                   (proc, duration, tId) <- liftIO $ playSong nextSong chan
-                  M.continue app {
-                      songsList = L.listReplace songs' (l ^. L.listSelectedL) l,
+                  M.continue (updateAppStatus (updateAppStatus app Stop playPos) Play nextPos) {
                       playback = Just (Playback nextPos proc duration duration tId)
                     }
         _ -> M.continue app
