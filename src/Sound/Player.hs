@@ -46,9 +46,9 @@ drawUI :: PlayerApp -> [Widget]
 drawUI (PlayerApp l _ _ mPlayback)  = [ui]
   where
     playheadWidget Nothing = str " "
-    playheadWidget (Just pb@(Playback _ _ ph p _)) = str $
-      "Duration: " ++ show ph ++
-      " - Position: " ++ show p ++
+    playheadWidget (Just pb@(Playback _ _ ph d _)) = str $
+      "Duration: " ++ show d ++
+      " - Position: " ++ show (d - ph) ++
       " - Progress: " ++ show (playheadProgress pb)
     playheadProgressBar Nothing = str " "
     playheadProgressBar (Just pb) =
