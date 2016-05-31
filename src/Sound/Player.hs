@@ -107,6 +107,7 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
           M.continue (updateAppStatus app' Play pos) {
               playback = Just (Playback pos proc duration duration tId)
             }
+
     -- press spacebar to play/pause
     VtyEvent (V.EvKey (V.KChar ' ') []) -> do
       let mPos = l ^. L.listSelectedL
@@ -154,23 +155,20 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
           case mPlayback of
             Nothing -> M.continue app
             Just pb@(Playback playPos _ ph _ _) ->
-              if ph > 0
-                then
-                  -- advance playhead
-                  M.continue app {
-                      playback = Just pb { playhead = ph - 1.0 }
-                    }
-                else do
-                  let songs = L.listElements l
-                      nextPos = (playPos + 1) `mod` Vec.length songs
-                      nextSong = songs Vec.! nextPos
-                  -- stop current song
-                  liftIO $ stopPlayingSong pb
-                  -- play next song
-                  (proc, duration, tId) <- liftIO $ playSong nextSong chan
-                  M.continue (updateAppStatus (updateAppStatus app Stop playPos) Play nextPos) {
-                      playback = Just (Playback nextPos proc duration duration tId)
-                    }
+              if ph > 0 then
+                -- advance playhead
+                M.continue app { playback = Just pb { playhead = ph - 1.0 } }
+              else do
+                let songs = L.listElements l
+                    nextPos = (playPos + 1) `mod` Vec.length songs
+                    nextSong = songs Vec.! nextPos
+                -- stop current song
+                liftIO $ stopPlayingSong pb
+                -- play next song
+                (proc, duration, tId) <- liftIO $ playSong nextSong chan
+                M.continue (updateAppStatus (updateAppStatus app Stop playPos) Play nextPos) {
+                    playback = Just (Playback nextPos proc duration duration tId)
+                  }
         _ -> M.continue app
 
 
