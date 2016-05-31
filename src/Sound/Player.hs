@@ -1,7 +1,6 @@
 -- TODO: playlist
 -- TODO: search
 -- TODO: go to playing song
--- TODO: next/previous
 -- TODO: help dialog
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -66,7 +65,7 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
     ui = vBox [ box
               , playheadProgressBar mPlayback
               , playheadWidget mPlayback
-              , str "Press enter to play/stop, spacebar to pause/resume, q to exit."
+              , str "Press enter to play/stop, spacebar to pause/resume, left/right to play prev/next song, q to exit."
               ]
 
 
@@ -88,7 +87,7 @@ updateAppStatus app@(PlayerApp l _ _ _) status pos =
 appEvent :: PlayerApp -> PlayerEvent -> EventM (Next PlayerApp)
 appEvent app@(PlayerApp l status chan mPlayback) e =
   case e of
-    -- play selected song, stop current song if playing
+    -- press enter to play selected song, stop current song if playing
     VtyEvent (V.EvKey V.KEnter []) -> do
       let mPos = l ^. L.listSelectedL
           songs = L.listElements l
@@ -137,6 +136,45 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
               M.continue (updateAppStatus app Play pos) {
                   playback = Just (Playback pos proc duration duration tId)
                 }
+
+    -- press left to play previous song
+    VtyEvent (V.EvKey V.KLeft []) ->
+      case status of
+        Play ->
+          case mPlayback of
+            Nothing -> M.continue app
+            Just pb@(Playback playPos _ _ _ _) -> do
+              let songs = L.listElements l
+                  nextPos = (playPos - 1) `mod` Vec.length songs
+                  nextSong = songs Vec.! nextPos
+              -- stop current song
+              liftIO $ stopPlayingSong pb
+              -- play next song
+              (proc, duration, tId) <- liftIO $ playSong nextSong chan
+              M.continue (updateAppStatus (updateAppStatus app Stop playPos) Play nextPos) {
+                  playback = Just (Playback nextPos proc duration duration tId)
+                }
+        _ -> M.continue app
+
+    -- press right to play next song
+    VtyEvent (V.EvKey V.KRight []) ->
+      case status of
+        Play ->
+          case mPlayback of
+            Nothing -> M.continue app
+            Just pb@(Playback playPos _ _ _ _) -> do
+              let songs = L.listElements l
+                  nextPos = (playPos + 1) `mod` Vec.length songs
+                  nextSong = songs Vec.! nextPos
+              -- stop current song
+              liftIO $ stopPlayingSong pb
+              -- play next song
+              (proc, duration, tId) <- liftIO $ playSong nextSong chan
+              M.continue (updateAppStatus (updateAppStatus app Stop playPos) Play nextPos) {
+                  playback = Just (Playback nextPos proc duration duration tId)
+                }
+        _ -> M.continue app
+
     -- press q to quit
     VtyEvent (V.EvKey (V.KChar 'q') []) -> do
       -- stop current process if present
