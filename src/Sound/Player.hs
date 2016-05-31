@@ -46,12 +46,16 @@ drawUI :: PlayerApp -> [Widget]
 drawUI (PlayerApp l _ _ mPlayback)  = [ui]
   where
     playheadWidget Nothing = str " "
-    playheadWidget (Just (Playback _ _ ph d _)) = str $
+    playheadWidget (Just pb@(Playback _ _ ph p _)) = str $
       "Duration: " ++ show ph ++
-      " - Progress: " ++ show (1 - (double2Float ph / double2Float d))
+      " - Position: " ++ show p ++
+      " - Progress: " ++ show (playheadProgress pb)
     playheadProgressBar Nothing = str " "
-    playheadProgressBar (Just (Playback _ _ ph d _)) =
-      P.progressBar Nothing (1 - (double2Float ph / double2Float d))
+    playheadProgressBar (Just pb) =
+      P.progressBar Nothing (playheadProgress pb)
+    -- A number between 0 and 1 that is current song's progress
+    playheadProgress (Playback _ _ ph d _) =
+      1 - (double2Float ph / double2Float d)
     label = str "Item " <+> cur <+> str " of " <+> total
     cur =
       case l ^. L.listSelectedL of
