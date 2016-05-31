@@ -34,9 +34,9 @@ import System.Process (ProcessHandle)
 
 import Sound.Player.AudioInfo (SongInfo(SongInfo), fetchSongInfo)
 import qualified Sound.Player.AudioPlay as AP (play, pause, resume, stop)
-import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp, songsList,
-  playerStatus, playback), Playback(Playback, playhead), Status(Play, Pause,
-  Stop), PlayerEvent(VtyEvent, PlayheadAdvance))
+import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp,
+  songsList, playerStatus, playback), Playback(Playback, playhead),
+  Status(Play, Pause, Stop), PlayerEvent(VtyEvent, PlayheadAdvance))
 import Sound.Player.Widgets (songWidget)
 
 
@@ -50,8 +50,25 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
       " - Position: " ++ show (d - ph) ++
       " - Progress: " ++ show (playheadProgress pb)
     playheadProgressBar Nothing = str " "
-    playheadProgressBar (Just pb) =
-      P.progressBar Nothing (playheadProgress pb)
+    playheadProgressBar (Just pb@(Playback playPos _ ph _ _)) =
+      P.progressBar (Just title) (playheadProgress pb)
+      where
+        title = path ++ " (" ++ humanDuration ph ++ ")"
+        songs = l ^. L.listElementsL
+        (Song _ path _) = songs Vec.! playPos
+        secondsDuration :: Double -> Int
+        secondsDuration d = round d `mod` 60
+        minutesDuration :: Double -> Int
+        minutesDuration d = round d `div` 60
+        humanDuration :: Double -> String
+        humanDuration d =
+          show (minutesDuration d) ++ ":" ++ padSeconds (secondsDuration d)
+        padSeconds :: Int -> String
+        padSeconds s
+            | length secs < 2 = "0" ++ secs
+            | otherwise = secs
+          where
+            secs = show s
     -- A number between 0 and 1 that is current song's progress
     playheadProgress (Playback _ _ ph d _) =
       1 - (double2Float ph / double2Float d)
@@ -65,7 +82,9 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
     ui = vBox [ box
               , playheadProgressBar mPlayback
               , playheadWidget mPlayback
-              , str "Press enter to play/stop, spacebar to pause/resume, left/right to play prev/next song, q to exit."
+              , str $ "Press enter to play/stop, spacebar to pause/resume, " ++
+                      "left/right to play prev/next song, " ++
+                      "q to exit."
               ]
 
 
