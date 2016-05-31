@@ -37,7 +37,7 @@ import Sound.Player.AudioInfo (SongInfo(SongInfo), fetchSongInfo)
 import Sound.Player.AudioPlay (play, pause, resume, stop)
 import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp, songsList,
   playerStatus, playback), Playback(Playback, playhead), Status(Play, Pause,
-  Stop), PlayheadAdvance(VtyEvent, PlayheadAdvance))
+  Stop), PlayerEvent(VtyEvent, PlayheadAdvance))
 import Sound.Player.Widgets (songWidget)
 
 
@@ -71,7 +71,7 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
 
 
 -- | App events handler.
-appEvent :: PlayerApp -> PlayheadAdvance -> EventM (Next PlayerApp)
+appEvent :: PlayerApp -> PlayerEvent -> EventM (Next PlayerApp)
 appEvent app@(PlayerApp l status chan mPlayback) e =
   case e of
     -- press spacebar to play/pause
@@ -173,7 +173,7 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
 
 -- | Forks a thread that will trigger a 'Types.PlayheadAdvance' event every
 -- second.
-playheadAdvanceLoop :: Chan PlayheadAdvance -> IO ThreadId
+playheadAdvanceLoop :: Chan PlayerEvent -> IO ThreadId
 playheadAdvanceLoop chan = forkIO loop
   where
     loop = do
@@ -190,7 +190,7 @@ stopPlayingSong (Playback _ playProc _ _ threadId) = do
 
 
 -- | Fetches song info, plays it, and starts a thread to advance the playhead.
-playSong :: Song -> Chan PlayheadAdvance -> IO (ProcessHandle, Double, ThreadId)
+playSong :: Song -> Chan PlayerEvent -> IO (ProcessHandle, Double, ThreadId)
 playSong (Song _ path _) chan = do
   musicDir <- defaultMusicDirectory
   (SongInfo duration) <- fetchSongInfo $ musicDir </> path
@@ -217,7 +217,7 @@ theMap = A.attrMap V.defAttr
   ]
 
 
-theApp :: M.App PlayerApp PlayheadAdvance
+theApp :: M.App PlayerApp PlayerEvent
 theApp =
   M.App { M.appDraw = drawUI
         , M.appChooseCursor = M.showFirstCursor
