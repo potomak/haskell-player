@@ -2,6 +2,7 @@
 -- TODO: search
 -- TODO: go to playing song
 -- TODO: next/previous
+-- TODO: help dialog
 
 {-# LANGUAGE OverloadedStrings #-}
 
