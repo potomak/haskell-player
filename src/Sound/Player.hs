@@ -40,6 +40,8 @@ import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp, songsLis
   Stop), PlayheadAdvance(VtyEvent, PlayheadAdvance))
 import Sound.Player.Widgets (songWidget)
 
+
+-- | Draws application UI.
 drawUI :: PlayerApp -> [Widget]
 drawUI (PlayerApp l _ _ mPlayback)  = [ui]
   where
@@ -63,6 +65,8 @@ drawUI (PlayerApp l _ _ mPlayback)  = [ui]
               , str "Press spacebar to play/pause, q to exit."
               ]
 
+
+-- | App events handler.
 appEvent :: PlayerApp -> PlayheadAdvance -> EventM (Next PlayerApp)
 appEvent app@(PlayerApp l status chan mPlayback) e =
   case e of
@@ -163,6 +167,8 @@ appEvent app@(PlayerApp l status chan mPlayback) e =
         _ -> M.continue app
 
 
+-- | Forks a thread that will trigger a 'Types.PlayheadAdvance' event every
+-- second.
 playheadAdvanceLoop :: Chan PlayheadAdvance -> IO ThreadId
 playheadAdvanceLoop chan = forkIO loop
   where
@@ -172,12 +178,14 @@ playheadAdvanceLoop chan = forkIO loop
       loop
 
 
+-- | Stops the song that is currently playing and kills the playback thread.
 stopPlayingSong :: Playback -> IO ()
 stopPlayingSong (Playback _ playProc _ _ threadId) = do
   stop playProc
   killThread threadId
 
 
+-- | Fetches song info, plays it, and starts a thread to advance the playhead.
 playSong :: Song -> Chan PlayheadAdvance -> IO (ProcessHandle, Double, ThreadId)
 playSong (Song _ path _) chan = do
   musicDir <- defaultMusicDirectory
@@ -187,6 +195,7 @@ playSong (Song _ path _) chan = do
   return (proc, duration, tId)
 
 
+-- | Returns the initial state of the application.
 initialState :: IO PlayerApp
 initialState = do
   chan <- newChan
@@ -215,6 +224,8 @@ theApp =
         }
 
 
+-- TODO: return only audio files
+-- | Returns the list of files in the default music directory.
 listMusicDirectory :: IO [FilePath]
 listMusicDirectory = do
     musicDir <- defaultMusicDirectory
@@ -234,6 +245,7 @@ listMusicDirectory = do
     stripMusicDirectory musicDir = fromMaybe musicDir . stripPrefix musicDir
 
 
+-- | The default music directory is /$HOME\/Music/.
 defaultMusicDirectory :: IO FilePath
 defaultMusicDirectory = (</> "Music/") <$> getEnv "HOME"
 
