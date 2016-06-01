@@ -13,5 +13,5 @@ songWidget (Song _ path status) =
     vLimit 1 $ str (statusSymbol status) <+> str " " <+> str path <+> fill ' '
   where
     statusSymbol Play = "♫"
-    statusSymbol Pause = "►"
+    statusSymbol Pause = "•"
     statusSymbol _ = " "
