@@ -14,9 +14,10 @@ import qualified Brick.Main as M
 import Brick.Types (Widget, EventM, Next, Name(Name), handleEvent)
 import Brick.Widgets.Core ((<+>), str, vBox)
 import qualified Brick.Widgets.Border as B
+import qualified Brick.Widgets.Dialog as D
 import qualified Brick.Widgets.List as L
 import qualified Brick.Widgets.ProgressBar as P
-import Brick.Util (on)
+import Brick.Util (on, bg)
 import Control.Concurrent (Chan, ThreadId, forkIO, killThread, newChan,
   writeChan, threadDelay)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -37,12 +38,12 @@ import qualified Sound.Player.AudioPlay as AP (play, pause, resume, stop)
 import Sound.Player.Types (Song(Song, songStatus), PlayerApp(PlayerApp,
   songsList, playerStatus, playback), Playback(Playback, playhead),
   Status(Play, Pause, Stop), PlayerEvent(VtyEvent, PlayheadAdvance))
-import Sound.Player.Widgets (songWidget)
+import Sound.Player.Widgets (songWidget, helpDialog)
 
 
 -- | Draws application UI.
 drawUI :: PlayerApp -> [Widget]
-drawUI (PlayerApp l _ _ mPlayback)  = [ui]
+drawUI (PlayerApp l _ _ mPlayback)  = [helpDialog, ui]
   where
     playheadWidget Nothing = str " "
     playheadWidget (Just pb@(Playback _ _ ph d _)) = str $
@@ -238,6 +239,9 @@ theMap = A.attrMap V.defAttr
   [ (L.listAttr,             V.white `on` V.blue)
   , (L.listSelectedAttr,     V.blue `on` V.white)
   , (P.progressCompleteAttr, V.blue `on` V.white)
+  , (D.dialogAttr,           V.white `on` V.blue)
+  , (D.buttonAttr,           V.black `on` V.white)
+  , (D.buttonSelectedAttr,   bg V.yellow)
   ]
 
 
