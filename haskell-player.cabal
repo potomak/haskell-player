@@ -1,5 +1,5 @@
 name:                haskell-player
-version:             0.1.3.2
+version:             0.1.3.3
 synopsis:            A terminal music player based on afplay
 description:         A minimal graphical interface on top of afplay and afinfo
                      built using brick.
