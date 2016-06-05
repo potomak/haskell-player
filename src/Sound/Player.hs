@@ -1,8 +1,3 @@
--- TODO: playlist
--- TODO: search
--- TODO: go to playing song
--- TODO: help dialog
-
 {-# LANGUAGE OverloadedStrings #-}
 
 module Sound.Player (
