@@ -7,14 +7,19 @@ module Sound.Player.AudioPlay (
 
 import Control.Monad (void)
 import Data.Maybe (fromJust)
-import System.Process (ProcessHandle, createProcess, proc, terminateProcess)
+import System.Process (ProcessHandle, StdStream(CreatePipe),
+  CreateProcess(std_err), createProcess, proc, terminateProcess)
 import System.Process.Internals (ProcessHandle__(OpenHandle, ClosedHandle),
   PHANDLE, withProcessHandle)
 
 
 play :: FilePath -> IO ProcessHandle
 play path = do
-  (_, _, _, processHandle) <- createProcess (proc "afplay" [path])
+  (_, _, _, processHandle) <-
+    -- TODO: update System.Process version to use NoStream
+    createProcess (proc "afplay" [path]) {
+        std_err = CreatePipe
+      }
   return processHandle
 
 
