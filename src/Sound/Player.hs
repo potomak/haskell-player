@@ -19,6 +19,7 @@ import qualified Brick.Widgets.ProgressBar as P
 import Brick.Util (on)
 import Control.Concurrent (Chan, ThreadId, forkIO, killThread, newChan,
   writeChan, threadDelay)
+import Control.Exception (SomeException, catch)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Default (def)
 import Data.List (isPrefixOf, stripPrefix)
@@ -168,10 +169,14 @@ play (Just pos) app@(PlayerApp l _ chan _) = do
   where
     songs = L.listElements l
     song = songs Vec.! pos
+    failSongInfo :: SomeException -> IO SongInfo
+    failSongInfo _ = return $ SongInfo (-1)
     playSong :: Song -> IO (ProcessHandle, Double, ThreadId)
     playSong (Song _ path _) = do
       musicDir <- defaultMusicDirectory
-      (SongInfo duration) <- fetchSongInfo $ musicDir </> path
+      (SongInfo duration) <- catch
+        (fetchSongInfo $ musicDir </> path)
+        failSongInfo
       proc <- AP.play $ musicDir </> path
       tId <- playheadAdvanceLoop chan
       return (proc, duration, tId)
