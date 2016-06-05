@@ -243,7 +243,7 @@ listMusicDirectory = do
     stripMusicDirectory musicDir = fromMaybe musicDir . stripPrefix musicDir
 
 
--- | The default music directory is /$HOME\/Music/.
+-- | The default music directory is @$HOME/Music@.
 defaultMusicDirectory :: IO FilePath
 defaultMusicDirectory = (</> "Music/") <$> getEnv "HOME"
 
