@@ -179,7 +179,7 @@ play (Just pos) app@(PlayerApp l _ chan _) = do
 
 -- Stops current song and play selected song.
 stopAndPlaySelected :: (MonadIO m) => PlayerApp -> m PlayerApp
-stopAndPlaySelected app = play mPos =<< stop app
+stopAndPlaySelected app = stop app >>= play mPos
   where
     mPos = songsList app ^. L.listSelectedL
 
@@ -188,7 +188,7 @@ stopAndPlaySelected app = play mPos =<< stop app
 stopAndPlayDelta :: (MonadIO m) => Int -> PlayerApp -> m PlayerApp
 stopAndPlayDelta _ app@(PlayerApp _ _ _ Nothing) = return app
 stopAndPlayDelta delta app@(PlayerApp l _ _ (Just (Playback playPos _ _ _ _))) =
-    play (Just pos) =<< stop app
+    stop app >>= play (Just pos)
   where
     pos = (playPos + delta) `mod` Vec.length (L.listElements l)
 
