@@ -1,8 +1,3 @@
--- TODO: playlist
--- TODO: search
--- TODO: go to playing song
--- TODO: help dialog
-
 {-# LANGUAGE OverloadedStrings #-}
 
 module Sound.Player (
@@ -19,6 +14,7 @@ import qualified Brick.Widgets.ProgressBar as P
 import Brick.Util (on)
 import Control.Concurrent (Chan, ThreadId, forkIO, killThread, newChan,
   writeChan, threadDelay)
+import Control.Exception (SomeException, catch)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Default (def)
 import Data.List (isPrefixOf, stripPrefix)
@@ -168,10 +164,14 @@ play (Just pos) app@(PlayerApp l _ chan _) = do
   where
     songs = L.listElements l
     song = songs Vec.! pos
+    failSongInfo :: SomeException -> IO SongInfo
+    failSongInfo _ = return $ SongInfo (-1)
     playSong :: Song -> IO (ProcessHandle, Double, ThreadId)
     playSong (Song _ path _) = do
       musicDir <- defaultMusicDirectory
-      (SongInfo duration) <- fetchSongInfo $ musicDir </> path
+      (SongInfo duration) <- catch
+        (fetchSongInfo $ musicDir </> path)
+        failSongInfo
       proc <- AP.play $ musicDir </> path
       tId <- playheadAdvanceLoop chan
       return (proc, duration, tId)
@@ -179,7 +179,7 @@ play (Just pos) app@(PlayerApp l _ chan _) = do
 
 -- Stops current song and play selected song.
 stopAndPlaySelected :: (MonadIO m) => PlayerApp -> m PlayerApp
-stopAndPlaySelected app = play mPos =<< stop app
+stopAndPlaySelected app = stop app >>= play mPos
   where
     mPos = songsList app ^. L.listSelectedL
 
@@ -188,7 +188,7 @@ stopAndPlaySelected app = play mPos =<< stop app
 stopAndPlayDelta :: (MonadIO m) => Int -> PlayerApp -> m PlayerApp
 stopAndPlayDelta _ app@(PlayerApp _ _ _ Nothing) = return app
 stopAndPlayDelta delta app@(PlayerApp l _ _ (Just (Playback playPos _ _ _ _))) =
-    play (Just pos) =<< stop app
+    stop app >>= play (Just pos)
   where
     pos = (playPos + delta) `mod` Vec.length (L.listElements l)
 
@@ -243,7 +243,7 @@ listMusicDirectory = do
     stripMusicDirectory musicDir = fromMaybe musicDir . stripPrefix musicDir
 
 
--- | The default music directory is /$HOME\/Music/.
+-- | The default music directory is @$HOME/Music@.
 defaultMusicDirectory :: IO FilePath
 defaultMusicDirectory = (</> "Music/") <$> getEnv "HOME"
 
